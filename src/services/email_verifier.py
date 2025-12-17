@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict
 import dns.exception
 import dns.resolver
 import re
@@ -7,6 +7,7 @@ from email.utils import parseaddr
 import smtplib
 import socket
 import csv
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -99,7 +100,7 @@ class EmailVerifier:
             overall_status="unknown",
         )
         
-    def validate_email_address(self, email: str, enable_smtp: bool, timeout: int) -> ValidationResult:
+    def _validate_email_address(self, email: str, enable_smtp: bool, timeout: int) -> ValidationResult:
         clean_email = email.strip().lower()
         if not clean_email:
             return ValidationResult(
@@ -201,42 +202,52 @@ class EmailVerifier:
                         "overall_status": r.overall_status,
                     }
                 )
+    def stream_summary(self, summary: dict):
+        yield "Summary by overall_status:\n"
+        for status, count in summary.items():
+            yield f" {status}: {count}\n"
                 
     def process_emails_in_bulk(
         self,
         input_path: str,
         output_path: str,
-        enable_smtp: bool,
-        max_workers: int,
-        timeout: int,
-    ) -> None:
+        enable_smtp: bool=True,
+        max_workers: int=10,
+        timeout: int=10,
+    ) -> Tuple[pd.DataFrame, Dict]:
+        
         emails = self._load_emails_from_csv(input_path)
         total = len(emails)
+        
         print(f"Loaded {total} unique emails from {input_path}")
 
         results: List[ValidationResult] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_email = {
-                executor.submit(self.validate_email_address, email, enable_smtp, timeout): email
+                executor.submit(self._validate_email_address, email, enable_smtp, timeout): email
                 for email in emails
             }
             completed = 0
-            try:
-                for future in as_completed(future_to_email):
-                    result = future.result()
-                    results.append(result)
-                    completed += 1
-                    if completed % 50 == 0 or completed == total:
-                        print(f"Processed {completed}/{total} emails")
-            except KeyboardInterrupt:
-                print("Interrupted by user, writing partial results...")
+            # try:
+            for future in as_completed(future_to_email):
+                result = future.result()
+                results.append(result)
+        
+        df_results = pd.DataFrame([r.__dict__ for r in results])
+                    
+                    
+        #     #         completed += 1
+        #     #         if completed % 50 == 0 or completed == total:
+        #     #             print(f"Processed {completed}/{total} emails")
+        #     # except KeyboardInterrupt:
+        #     #     print("Interrupted by user, writing partial results...")
 
-        self.write_results_to_csv(output_path, results)
-        print(f"Wrote {len(results)} results to {output_path}")
+        # self._write_results_to_csv(output_path, results)
+        # print(f"Wrote {len(results)} results to {output_path}")
 
         summary = {}
         for r in results:
             summary[r.overall_status] = summary.get(r.overall_status, 0) + 1
-        print("Summary by overall_status:")
-        for status, count in summary.items():
-            print(f"  {status}: {count}")
+            
+        return df_results, summary
+        
