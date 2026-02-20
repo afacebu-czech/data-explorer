@@ -1,2 +1,5 @@
 /.env
 /secrets
+/.de-139-env
+/build
+/output

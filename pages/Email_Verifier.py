@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import tempfile
+import threading
 from src.services.session_manager import SessionManager
 from src.services.email_verifier import EmailVerifier
 
@@ -13,8 +14,6 @@ st.set_page_config(
     page_icon="📧",
     layout="wide",
 )
-
-
 
 def email_verifier():
     input = ev_session.get("ev_upload_csv_filepath")
@@ -43,18 +42,21 @@ def main():
         st.write(df_input)
     
     if st.button("Start Bulk Validation"):
-        if not upload_csv_filepaths:
-            st.error("No CSV file uploaded yet...")
+        try:
+            if not upload_csv_filepaths:
+                st.error("No CSV file uploaded yet...")
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
-            tmp.write(upload_csv_filepaths.getvalue())
-            tmp_path = tmp.name
-        
-        with st.spinner("Processing..."):
-            df_results, summary = email_verifier()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+                tmp.write(upload_csv_filepaths.getvalue())
+                tmp_path = tmp.name
             
-            ev_session.set("df_results", df_results)
-            ev_session.set("summary", summary)
+            with st.spinner("Processing..."):
+                df_results, summary = email_verifier()
+                
+                ev_session.set("df_results", df_results)
+                ev_session.set("summary", summary)
+        except Exception as e:
+            print(f"Error in starting bulk validaiton: {e}")
             
     if ev_session.get("df_results") is not None:
         df_results = ev_session.get("df_results")
